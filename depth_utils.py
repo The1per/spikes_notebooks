@@ -9,7 +9,7 @@ from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import robust_scale
 
 sr = 1000
-edf_path = 'C:\\Lilach\\%s_for_tag_filtered_fix_tag.edf'
+depth_edf_path = 'C:\\Lilach\\%s_for_tag_filtered_fix_tag.edf'
 
 
 # yasa function for power features in each band
@@ -128,7 +128,7 @@ def format_raw(edf, channel, norm='raw'):
     return np.array(epochs), np.array(epochs), y_windows, final_index
 
 
-def calc_features_no_norm(epochs, subj):
+def calc_features_before_split(epochs, subj):
     # Bandpass filter
     freq_broad = (0.1, 500)
     # FFT & bandpower parameters
@@ -189,19 +189,20 @@ def calc_features_no_norm(epochs, subj):
     return feat
 
 
-def calc_features_norm(feat):
+def calc_features_after_split(feat):
     # SMOOTHING & NORMALIZATION
     roll1 = feat.rolling(window=1, center=True, min_periods=1, win_type='triang').mean()
     roll1[roll1.columns] = robust_scale(roll1, quantile_range=(5, 95))
     roll1 = roll1.iloc[:, 2:].add_suffix('_cmin_norm')
 
     # Add to current set of features
-    feat = feat.join(roll1)
+    # feat = feat.join(roll1)
+    # pd.concat([feat, roll1])
 
-    return feat
+    return pd.concat([feat, roll1], axis=1)
 
 
-def run_specific_chan(chan, bi=True, subjects=['38', '396', '398', '402', '406', '415', '416']):
+def run_specific_chan_with_bi(chan, bi=True, subjects=['38', '396', '398', '402', '406', '415', '416']):
     x_all = np.empty((0, 250))
     y_all = np.empty(0)
     feat_all = pd.DataFrame()
@@ -212,20 +213,20 @@ def run_specific_chan(chan, bi=True, subjects=['38', '396', '398', '402', '406',
     for subj in subjects:
         for channel in [f'R{chan}1', f'L{chan}1']:
             if not ((subj == '396' and channel == 'RAH1') or (subj == '38' and channel == 'LAH1')):
-                x, x_zscore, y, x_index = format_raw(edf_path % subj, channel)
-                features = calc_features_no_norm(x, subj)
+                x, x_zscore, y, x_index = format_raw(depth_edf_path % subj, channel)
+                features = calc_features_before_split(x, subj)
                 x_all = np.concatenate((x_all, x))
                 y_all = np.concatenate((y_all, y))
                 if bi:
-                    x, x_zscore, y, x_index = format_raw(edf_path % subj, f'{channel}-{channel[:-1]}2')
-                    features_bi = calc_features_no_norm(x, subj).add_prefix('bi_')
+                    x, x_zscore, y, x_index = format_raw(depth_edf_path % subj, f'{channel}-{channel[:-1]}2')
+                    features_bi = calc_features_before_split(x, subj).add_prefix('bi_')
                     features = pd.concat([features, features_bi.iloc[:, 2:]], axis=1)
                 feat_all = pd.concat([feat_all, features], axis=0)
 
                 X_train, X_test, y_train, y_test = train_test_split(features, y, stratify=y, random_state=20)
                 # Add separated norm
-                X_train = calc_features_norm(X_train)
-                X_test = calc_features_norm(X_test)
+                X_train = calc_features_after_split(X_train)
+                X_test = calc_features_after_split(X_test)
 
                 feat_all_train = pd.concat([feat_all_train, X_train], axis=0)
                 feat_all_test = pd.concat([feat_all_test, X_test], axis=0)
@@ -239,6 +240,39 @@ def run_specific_chan(chan, bi=True, subjects=['38', '396', '398', '402', '406',
     return feat_all_train, feat_all_test, y_all_train, y_all_test
 
 
+def run_specific_chan(channels, subjects=['38', '396', '398', '402', '406', '415', '416']):
+    x_all = np.empty((0, 250))
+    y_all = np.empty(0)
+    feat_all = pd.DataFrame()
+    y_all_train = np.empty(0)
+    y_all_test = np.empty(0)
+    feat_all_train = pd.DataFrame()
+    feat_all_test = pd.DataFrame()
+    for subj in subjects:
+        for channel in channels:
+            if not ((subj == '396' and 'RAH1' in channel) or (subj == '38' and 'LAH1' in channel)):
+                x, x_zscore, y, x_index = format_raw(depth_edf_path % subj, channel)
+                features = calc_features_before_split(x, subj)
+                x_all = np.concatenate((x_all, x))
+                y_all = np.concatenate((y_all, y))
+                feat_all = pd.concat([feat_all, features], axis=0)
+
+                X_train, X_test, y_train, y_test = train_test_split(features, y, stratify=y, random_state=20)
+                # Add separated norm
+                X_train = calc_features_after_split(X_train)
+                X_test = calc_features_after_split(X_test)
+
+                feat_all_train = pd.concat([feat_all_train, X_train], axis=0)
+                feat_all_test = pd.concat([feat_all_test, X_test], axis=0)
+                y_all_train = np.concatenate((y_all_train, y_train))
+                y_all_test = np.concatenate((y_all_test, y_test))
+
+    feat_all_train = feat_all_train.reset_index(drop=True)
+    feat_all_train.index.name = 'epoch'
+    feat_all_test = feat_all_test.reset_index(drop=True)
+    feat_all_test.index.name = 'epoch'
+    return feat_all_train, feat_all_test, y_all_train, y_all_test
+
 def run_all(subjects=['396', '398', '402', '406', '415', '416']):
     neighbors = {'R': ['RAH1-RAH2', 'RA1'], 'L': ['LAH1-LAH2', 'LA1']}
     x_AH = np.empty((0, 250))
@@ -251,24 +285,24 @@ def run_all(subjects=['396', '398', '402', '406', '415', '416']):
     for subj in subjects:
         for channel in ['RAH1', 'LAH1']:
             if not (subj == '396' and channel == 'RAH1'):
-                x, x_zscore, y, x_index = format_raw(edf_path % subj, channel)
+                x, x_zscore, y, x_index = format_raw(depth_edf_path % subj, channel)
                 x_AH = np.concatenate((x_AH, x))
                 # y_all = np.concatenate((y_all, y))
-                features = calc_features_no_norm(x, subj)
+                features = calc_features_before_split(x, subj)
                 for neighbor in neighbors[channel[0]]:
-                    x, x_zscore, y, x_index = format_raw(edf_path % subj, neighbor)
+                    x, x_zscore, y, x_index = format_raw(depth_edf_path % subj, neighbor)
                     if '-' in neighbor:
                         x_bi = np.concatenate((x_bi, x))
                     else:
                         x_A = np.concatenate((x_A, x))
                     prefix = neighbor.replace(channel[0], '')
-                    features_neighbor = calc_features_no_norm(x, subj).add_prefix(f'{prefix}_')
+                    features_neighbor = calc_features_before_split(x, subj).add_prefix(f'{prefix}_')
                     features = pd.concat([features, features_neighbor.iloc[:, 2:]], axis=1)
 
                 X_train, X_test, y_train, y_test = train_test_split(features, y, stratify=y, random_state=20)
                 # Add separated norm
-                X_train = calc_features_norm(X_train)
-                X_test = calc_features_norm(X_test)
+                X_train = calc_features_after_split(X_train)
+                X_test = calc_features_after_split(X_test)
 
                 feat_all_train = pd.concat([feat_all_train, X_train], axis=0)
                 feat_all_test = pd.concat([feat_all_test, X_test], axis=0)
