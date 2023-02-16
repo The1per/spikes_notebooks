@@ -15,7 +15,7 @@ from imblearn.over_sampling import SMOTE
 # General params
 sr = 1000
 scalp_edf_path = 'C:\\Users\\user\\PycharmProjects\\pythonProject\\%s_clean.edf'
-only_right = ['38', '017', '422']
+only_right = ['017', '018', '025', '38', '422']
 only_left = ['44', '46', '396']
 
 # Thesis model
@@ -29,13 +29,14 @@ features_names_AH = pd.read_csv('results/features_AH_only_7.csv').columns.tolist
 model = joblib.load('results/lgbm_full_no_leak.pkl')
 features_names = pd.read_csv('results/features_lgbm_no_leak.csv').columns.tolist()
 
-all_subject = ['38', '394', '396', '398', '400', '402', '404', '405', '406', '414', '415', '416', '417', '423', '426', '429']
+all_subject = ['38', '394', '396', '398', '400', '402', '404', '405', '406', '414', '415', '416', '417', '422', '423', '426', '429']
 # rf biased
 subj_eog1 = ['404', '414', '415', '422', '423', '429']
 subj_eog2 = ['398', '402', '405', '406', '416', '417', '426']
 subj_eog12 = ['38', '394', '396', '400']
 # all rf are ~0
 subj_bad = ['394', '396', '400', '405', '417', '422', '423', '426', '429']
+# good = ['38', '398', '402', '404', '406', '414', '415', '416']
 good_subj = [x for x in all_subject if x not in subj_bad]
 
 
@@ -114,7 +115,9 @@ def get_all_y_AH(subjects=['38', '396', '398', '400', '402', '406', '415', '416'
     if bi:
         model_AH = joblib.load("results/lgbm_bi_only_7.pkl")
     else:
-        model_AH = joblib.load('results/lgbm_AH_only_7.pkl')
+
+        model_AH = joblib.load('results/lgbm_AH_only_no_p.pkl')
+        # model_AH = joblib.load('results/rf_AH_only_no_p.pkl')
 
     features_names_AH = model_AH.feature_name_
     channels = ['RAH1-RAH2', 'LAH1-LAH2'] if bi else ['RAH1', 'LAH1']
@@ -344,6 +347,44 @@ def plot_results(x_train, x_test, y_train, y_test, prob=None):
     return classifiers, pred_details
 
 
+def plot_prob(cls, x_train, x_test, y_test, prob=0.8):
+    x_train_data = x_train.iloc[:, 2:]
+    selector = VarianceThreshold(.1)
+    selector.fit_transform(x_train_data)
+    x_train_data = x_train_data[x_train_data.columns[selector.get_support(indices=True)]]
+    x_test_data = x_test[x_train_data.columns]
+    pred_details = {}
+    f, axes = plt.subplots(1, len(cls), figsize=(10, 5), sharey='row')
+
+    for i, (key, classifier) in enumerate(cls.items()):
+        y_pred = classifier.predict_proba(x_test_data).T
+        cf_matrix = confusion_matrix(y_test, [p > prob for p in y_pred[1]])
+        metrics = get_metrics(cf_matrix)
+        disp = ConfusionMatrixDisplay(cf_matrix)
+        disp.plot(ax=axes[i], xticks_rotation=45)
+        precision = '{0:.2f}'.format(metrics['precision'])
+        recall = '{0:.2f}'.format(metrics['recall'])
+        text = """precision: {0}
+                      recall: {1}""".format(precision, recall)
+        axes[i].annotate(text, xy=(1, 0), xycoords='axes fraction', fontsize=16,
+                         xytext=(-60, -40), textcoords='offset points',
+                         ha='right', va='top')
+        disp.ax_.set_title(key)
+        disp.im_.colorbar.remove()
+        disp.ax_.set_xlabel('')
+        if i != 0:
+            disp.ax_.set_ylabel('')
+        curr_pred_details = pd.DataFrame(data=x_test, copy=True)
+        curr_pred_details['pred'] = y_pred
+        pred_details[key] = curr_pred_details
+
+    f.text(0.45, 0.1, 'Predicted label', ha='left')
+    plt.subplots_adjust(wspace=0.40, hspace=0.1)
+    plt.show()
+
+    return pred_details
+
+
 def save_depth_spikes(subjects=['396', '398', '402', '406', '415', '416']):
     for subj in subjects:
         y_bi = get_all_y_multi_channel([subj])
@@ -362,9 +403,13 @@ def get_importance(cls, feature_names=None, top_num=15):
     feature_imp = feature_names.sort_values(by=['imp'], ascending=False)
     feature_imp.head(top_num)
 
+
 # maybe plot both side by side
 def plot_detection_distribution_hist(details, confidence=0.8):
-    details[(details['pred'] >= confidence)].sort_values(by='subj')['subj'].hist()
+    # details[(details['pred'] >= confidence)].sort_values(by='subj')['subj'].hist()
+    data = details[(details['pred'] >= confidence)].sort_values(by='subj')['subj'].value_counts()
+    fig, ax = plt.subplots()
+    ax.bar(data.index, data.values)
     unique, counts = np.unique(details[(details['pred'] >= confidence)].sort_values(by='subj')['subj'].to_numpy(), return_counts=True)
     return dict(zip(unique, counts))
 

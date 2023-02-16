@@ -212,6 +212,7 @@ def plot_results_by_confidence(y_rf, y_lgbm):
 
     fig.tight_layout()
 
+
 def precision_recall_curve(cls, X_test_data, y_test, y_pred):
     from sklearn.metrics import f1_score
     from sklearn.metrics import auc
