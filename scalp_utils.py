@@ -14,9 +14,12 @@ from imblearn.over_sampling import SMOTE
 
 # General params
 sr = 1000
-scalp_edf_path = 'C:\\Users\\user\\PycharmProjects\\pythonProject\\%s_clean.edf'
+# scalp_edf_path = 'C:\\Users\\user\\PycharmProjects\\pythonProject\\%s_clean.edf'
+scalp_edf_path = 'C:\\UCLA\\%s_clean_eog.edf'
 only_right = ['017', '018', '025', '38', '422']
 only_left = ['44', '46', '396']
+nrem_sample = {'38': 80, '394': 20, '396': 65, '398': 50, '400': 10, '402': 10, '404': 100, '405': 53, '406': 90, '414': 75, '415': 55,
+               '416': 190, '417': 86, '423': 20, '426': 185, '429': 7}
 
 # Thesis model
 # model = joblib.load('lgbm_fast.pkl')
@@ -40,7 +43,7 @@ subj_bad = ['394', '396', '400', '405', '417', '422', '423', '426', '429']
 good_subj = [x for x in all_subject if x not in subj_bad]
 
 
-def format_raw_night(edf, channel, norm='raw'):
+def format_raw_night(edf, channel, norm='raw', subj=None):
     epochs = []
     window_size = int(sr / 4)
     if '-' in channel and 'REF' not in channel:
@@ -55,7 +58,7 @@ def format_raw_night(edf, channel, norm='raw'):
     if norm == 'raw':
         raw_data = (raw_data - raw_data.mean()) / raw_data.std()
     for i in range(0, len(raw_data), window_size):
-        curr_block = raw_data[i: i  + window_size]
+        curr_block = raw_data[i: i + window_size]
         if i + window_size < len(raw_data):
             epochs.append(curr_block)
 
@@ -128,7 +131,7 @@ def get_all_y_AH(subjects=['38', '396', '398', '400', '402', '406', '415', '416'
             if not ((subj in only_left and 'RAH1' in channel) or (subj in only_right and 'LAH1' in channel)):
                 if subj == '426':
                     channel = channel.replace('H', '')
-                x = format_raw_night(scalp_edf_path % subj, channel)
+                x = format_raw_night(scalp_edf_path % subj, channel, subj=subj)
                 features = calc_features_after_split(calc_features_before_split(x, subj))
 
                 # Here I have all features for one side
@@ -211,8 +214,37 @@ def format_combine_channel(subj, chans=['PZ','C3','C4'], norm='raw'):
 def get_all_feat_eog(eog_num, subjects=['38', '396', '398', '402', '406', '415', '416']):
     feat_all = pd.DataFrame()
     for subj in subjects:
-        x = format_raw_night(scalp_edf_path % subj, 'EOG' + eog_num)
+        x = format_raw_night(scalp_edf_path % subj, 'EOG' + eog_num, subj=subj)
         features = calc_features_before_split(x, subj)
+        feat_all = pd.concat([feat_all, features], axis=0)
+
+    return feat_all
+
+
+def channel_feat(edf, channel):
+    raw_data = mne.io.read_raw_edf(edf).pick_channels([channel]).resample(sr).get_data()[0]
+    feat = {
+        'median': np.median(raw_data),
+        'ptp': np.ptp(raw_data),
+        # 'iqr': sp_stats.iqr(chan),
+        # 'skew': sp_stats.skew(chan),
+        # 'kurt': sp_stats.kurtosis(chan),
+        # bf, gf
+    }
+
+    # feat = pd.DataFrame(feat, index=[0])
+
+    return feat
+
+
+def get_all_feat_eog_with_chan_feat(eog_num, subjects=['38', '396', '398', '402', '406', '415', '416'], path=scalp_edf_path):
+    feat_all = pd.DataFrame()
+    for subj in subjects:
+        x = format_raw_night(path % subj, 'EOG' + eog_num, subj=subj)
+        chan_feat = channel_feat(path % subj, 'EOG' + eog_num)
+        features = calc_features_before_split(x, subj)
+        for feat in chan_feat.keys():
+            features[feat] = chan_feat[feat]
         feat_all = pd.concat([feat_all, features], axis=0)
 
     return feat_all
@@ -424,7 +456,7 @@ def plot_detection_distribution_pie(details, confidence=0.8):
         pct_text.set_rotation(label.get_rotation())
 
 
-def save_features_dicts(subjects=['38', '394', '396', '398', '400', '402', '404', '405', '406', '414', '415', '416', '417', '423', '426', '429'], detection_func='multi', file_name='all'):
+def save_features_dicts(subjects=['38', '394', '396', '398', '400', '402', '404', '405', '406', '414', '415', '416', '417', '423', '426', '429'], detection_func='AH', file_name='all'):
     # get everyone feat and y
     eog1_dict = {}
     eog2_dict = {}
@@ -432,24 +464,50 @@ def save_features_dicts(subjects=['38', '394', '396', '398', '400', '402', '404'
     y_dict = {}
     for subj in subjects:
         if detection_func == 'multi':
-            y_396_fast = get_all_y_multi_channel(subjects=[subj])
+            y = get_all_y_multi_channel(subjects=[subj])
         elif detection_func == 'AH':
-            y_396_fast = get_all_y_AH(subjects=[subj])
+            y = get_all_y_AH(subjects=[subj])
         elif detection_func == 'AH+bi':
-            y_396_fast = get_all_y_AH_bi(subjects=[subj])
+            y = get_all_y_AH_bi(subjects=[subj])
         clear_output()
-        y_dict[subj] = y_396_fast
-        feat_avg_396_fast = get_all_feat_avg(subjects=[subj])
+        y_dict[subj] = y
+        # feat_avg_396_fast = get_all_feat_avg(subjects=[subj])
+        # clear_output()
+        # avg_dict[subj] = feat_avg_396_fast
+        feat_eog1 = get_all_feat_eog('1', subjects=[subj])
         clear_output()
-        avg_dict[subj] = feat_avg_396_fast
-        feat_eog1_396_fast = get_all_feat_eog('1', subjects=[subj])
+        eog1_dict[subj] = feat_eog1
+        feat_eog2 = get_all_feat_eog('2', subjects=[subj])
         clear_output()
-        eog1_dict[subj] = feat_eog1_396_fast
-        feat_eog2_396_fast = get_all_feat_eog('2', subjects=[subj])
-        clear_output()
-        eog2_dict[subj] = feat_eog2_396_fast
+        eog2_dict[subj] = feat_eog2
 
     joblib.dump(y_dict, f'y_dict_{file_name}_{detection_func}.pkl')
     joblib.dump(eog1_dict, f'eog1_dict_{file_name}.pkl')
     joblib.dump(eog2_dict, f'eog2_dict_{file_name}.pkl')
-    joblib.dump(avg_dict, f'avg_dict_{file_name}.pkl')
+    # joblib.dump(avg_dict, f'avg_dict_{file_name}.pkl')
+
+
+def save_dicts_with_chan_feat(subjects=['38', '394', '396', '398', '400', '402', '404', '405', '406', '414', '415', '416', '417', '423', '426', '429'], file_name='all'):
+    # get everyone feat and y
+    eog1_dict = {}
+    eog2_dict = {}
+    avg_dict = {}
+    y_dict = {}
+    for subj in subjects:
+        # y = get_all_y_AH(subjects=[subj])
+        # clear_output()
+        # y_dict[subj] = y
+        feat_eog1 = get_all_feat_eog_with_chan_feat('1', subjects=[subj])
+        clear_output()
+        eog1_dict[subj] = feat_eog1
+        feat_eog2 = get_all_feat_eog_with_chan_feat('2', subjects=[subj])
+        clear_output()
+        eog2_dict[subj] = feat_eog2
+
+    # joblib.dump(y_dict, f'y_dict_{file_name}_{detection_func}.pkl')
+    joblib.dump(eog1_dict, f'eog1_dict_{file_name}.pkl')
+    joblib.dump(eog2_dict, f'eog2_dict_{file_name}.pkl')
+
+
+# save_features_dicts(file_name='clean_eog')
+# save_dicts_with_chan_feat(file_name='with_chan')
