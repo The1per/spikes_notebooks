@@ -56,6 +56,7 @@ def format_raw_night(fif, channel, norm='raw', subj=None):
         curr_block = raw_data[i: i + window_size]
         if i + window_size < len(raw_data):
             epochs.append(curr_block)
+            
 
     # Normalization
     epochs = np.array(epochs)
