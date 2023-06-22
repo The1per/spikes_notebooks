@@ -47,7 +47,6 @@ def format_raw_night(fif, channel, norm='raw', subj=None):
     epochs = []
     window_size = int(sr / 4)
  
- 
     raw_data = mne.io.read_raw_fif(fif,preload = False).pick_channels([channel]).resample(sr).get_data()[0]
 
     if norm == 'raw':
@@ -56,7 +55,7 @@ def format_raw_night(fif, channel, norm='raw', subj=None):
         curr_block = raw_data[i: i + window_size]
         if i + window_size < len(raw_data):
             epochs.append(curr_block)
-            
+
 
     # Normalization
     epochs = np.array(epochs)
